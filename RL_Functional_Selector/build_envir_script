@@ -1,0 +1,18 @@
+Install venv support (once):
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+
+Go to your project folder:
+cd /path/to/your/project
+
+Create the environment:
+python3 -m venv RL_learning
+
+Activate it:
+source RL_learning/bin/activate
+
+Upgrade pip (recommended):
+python -m pip install --upgrade pip
+
+To leave the environment later:
+deactivate
