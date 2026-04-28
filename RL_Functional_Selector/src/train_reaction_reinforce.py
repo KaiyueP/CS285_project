@@ -62,7 +62,7 @@ def eval_mae_under_greedy(agent: ReinforcePolicyAgent, X: np.ndarray, errors: np
     Mean absolute error (reaction energy) vs reference when using the greedy-predicted functional.
 
     errors[i, j] = |E_ij - E_ref_i| already, so MAE = mean_i errors[i, greedy(i)].
-    Units: Hartree.
+    Units: kcal/mol (as stored in GSCDB Reaction_Energies.csv).
     """
     if len(X) == 0:
         return float("nan")
@@ -132,7 +132,7 @@ def train(
     te_mae_oracle = eval_mae_oracle(err_te)
     te_mae_rand = eval_mae_uniform_random(err_te, rng)
     logger.info(
-        "Energy MAE vs reference on TEST (Hartree): oracle=%.6g  uniform_random=%.6g",
+        "Energy MAE vs reference on TEST (kcal/mol): oracle=%.6g  uniform_random=%.6g",
         te_mae_oracle,
         te_mae_rand,
     )
@@ -178,7 +178,7 @@ def train(
                 "train_greedy": tr_acc,
                 "test_greedy": te_acc,
                 "test_prob_on_best": te_p,
-                "test_mae_hartree": te_mae,
+                "test_mae_energy": te_mae,
                 "baseline": baseline_val,
             }
         )
@@ -263,7 +263,7 @@ def train(
 
     final_te_mae = eval_mae_under_greedy(agent, X_te, err_te)
     logger.info(
-        "Final TEST energy MAE (greedy predicted functional): %.6g Hartree  "
+        "Final TEST energy MAE (greedy predicted functional): %.6g kcal/mol  "
         "(oracle lower bound %.6g, uniform-random ~%.6g)",
         final_te_mae,
         te_mae_oracle,
@@ -283,6 +283,7 @@ def train(
         "steps": steps,
         "warmup_supervised": warmup_supervised,
         "batch_size": batch_size,
+        "energy_unit": "kcal/mol",
         "test_mae_energy_greedy_final": final_te_mae,
         "test_mae_energy_oracle": te_mae_oracle,
         "test_mae_energy_uniform_random": te_mae_rand,
@@ -346,3 +347,4 @@ if __name__ == "__main__":
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     main()
+

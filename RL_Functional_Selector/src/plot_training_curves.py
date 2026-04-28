@@ -15,8 +15,6 @@ from pathlib import Path
 
 import numpy as np
 
-HARTREE_TO_KCAL = 627.509
-
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="Plot curves from training_history.json")
@@ -59,6 +57,7 @@ def main(argv=None):
 
     oracle = float(data["te_mae_oracle"])
     rand_mae = float(data["te_mae_uniform_random"])
+    unit = data.get("energy_unit", "kcal/mol")
     wu = int(data.get("warmup_supervised") or 0)
 
     cum = np.array([r["cum_update"] for r in recs])
@@ -66,7 +65,7 @@ def main(argv=None):
     test_g = np.array([r["test_greedy"] for r in recs])
     train_g = np.array([r["train_greedy"] for r in recs])
     test_p = np.array([r["test_prob_on_best"] for r in recs])
-    test_mae = np.array([r["test_mae_hartree"] for r in recs])
+    test_mae = np.array([r.get("test_mae_energy", r.get("test_mae_hartree")) for r in recs], dtype=float)
     baselines = [r.get("baseline") for r in recs]
     bl = np.array([b if b is not None else np.nan for b in baselines])
 
@@ -109,15 +108,15 @@ def main(argv=None):
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
 
-    # --- Panel 2: MAE Hartree + kcal twin ---
+    # --- Panel 2: MAE in dataset units ---
     ax = axes[0, 1]
     ax.plot(cum, test_mae, "darkred", marker="o", markersize=3, linewidth=1.2, label="Test MAE (greedy)")
-    ax.axhline(oracle, color="green", linestyle="--", linewidth=1.5, label=f"Oracle MAE ({oracle:.4g} Ha)")
-    ax.axhline(rand_mae, color="orange", linestyle="--", linewidth=1.5, label=f"Uniform random (~{rand_mae:.4g} Ha)")
+    ax.axhline(oracle, color="green", linestyle="--", linewidth=1.5, label=f"Oracle MAE ({oracle:.4g} {unit})")
+    ax.axhline(rand_mae, color="orange", linestyle="--", linewidth=1.5, label=f"Uniform random (~{rand_mae:.4g} {unit})")
     if wu > 0 and (max_cum is None or wu <= max_cum):
         ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5)
     ax.set_xlabel("Cumulative update")
-    ax.set_ylabel("MAE (Hartree)")
+    ax.set_ylabel(f"MAE ({unit})")
     ax.set_title("Energy error vs reference (predicted functional)")
     ax.legend(loc="best", fontsize=7)
     ax.grid(True, alpha=0.3)
@@ -156,21 +155,21 @@ def main(argv=None):
     fig.savefig(out_main, dpi=150)
     plt.close(fig)
 
-    # Second figure: MAE in kcal/mol only (often more readable)
+    # Second figure: MAE only (same unit as dataset)
     fig2, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
-    ax.plot(cum, test_mae * HARTREE_TO_KCAL, "darkred", marker="o", markersize=3, label="Test MAE (greedy)")
-    ax.axhline(oracle * HARTREE_TO_KCAL, color="green", linestyle="--", label="Oracle")
-    ax.axhline(rand_mae * HARTREE_TO_KCAL, color="orange", linestyle="--", label="Uniform random")
+    ax.plot(cum, test_mae, "darkred", marker="o", markersize=3, label="Test MAE (greedy)")
+    ax.axhline(oracle, color="green", linestyle="--", label="Oracle")
+    ax.axhline(rand_mae, color="orange", linestyle="--", label="Uniform random")
     if wu > 0 and (max_cum is None or wu <= max_cum):
         ax.axvline(wu, color="gray", linestyle=":", label="Warmup end")
     ax.set_xlabel("Cumulative update")
-    ax.set_ylabel("MAE (kcal/mol)")
-    ax.set_title("Reaction energy error vs reference — kcal/mol")
+    ax.set_ylabel(f"MAE ({unit})")
+    ax.set_title("Reaction energy error vs reference")
     ax.legend()
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
-    out_mae = out_dir / f"training_mae_kcal_mol{suffix}.png"
+    out_mae = out_dir / f"training_mae_energy{suffix}.png"
     fig2.savefig(out_mae, dpi=150)
     plt.close(fig2)
 
