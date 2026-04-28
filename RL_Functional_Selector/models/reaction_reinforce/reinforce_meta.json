@@ -8652,10 +8652,11 @@
     "T144_285"
   ],
   "seed": 42,
-  "steps": 20000,
+  "steps": 3000,
   "warmup_supervised": 2000,
   "batch_size": 128,
-  "test_mae_energy_greedy_final": 0.7670616025332235,
+  "energy_unit": "kcal/mol",
+  "test_mae_energy_greedy_final": 0.7683926157259516,
   "test_mae_energy_oracle": 0.19313494494052746,
   "test_mae_energy_uniform_random": 1.700338861346386
 }
