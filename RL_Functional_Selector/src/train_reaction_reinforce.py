@@ -164,6 +164,7 @@ def train(
         tr_acc: float,
         te_acc: float,
         te_p: float,
+        tr_mae: float,
         te_mae: float,
         baseline_val: Optional[float],
     ) -> None:
@@ -178,6 +179,7 @@ def train(
                 "train_greedy": tr_acc,
                 "test_greedy": te_acc,
                 "test_prob_on_best": te_p,
+                "train_mae_energy": tr_mae,
                 "test_mae_energy": te_mae,
                 "baseline": baseline_val,
             }
@@ -197,18 +199,20 @@ def train(
                 tr_acc = eval_greedy_accuracy(agent, X_tr, err_tr)
                 te_acc = eval_greedy_accuracy(agent, X_te, err_te)
                 te_p = eval_mean_prob_on_best(agent, X_te, err_te)
+                tr_mae = eval_mae_under_greedy(agent, X_tr, err_tr)
                 te_mae = eval_mae_under_greedy(agent, X_te, err_te)
                 logger.info(
                     "warmup %d/%d  train_greedy=%.4f  test_greedy=%.4f  test_prob_on_best=%.4f  "
-                    "test_mae_energy=%.6g",
+                    "train_mae_energy=%.6g  test_mae_energy=%.6g",
                     u + 1,
                     warmup_supervised,
                     tr_acc,
                     te_acc,
                     te_p,
+                    tr_mae,
                     te_mae,
                 )
-                _record("warmup", u + 1, tr_acc, te_acc, te_p, te_mae, None)
+                _record("warmup", u + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, None)
 
     baseline = 0.0
     best_te_acc = -1.0
@@ -243,21 +247,23 @@ def train(
             tr_acc = eval_greedy_accuracy(agent, X_tr, err_tr)
             te_acc = eval_greedy_accuracy(agent, X_te, err_te)
             te_p = eval_mean_prob_on_best(agent, X_te, err_te)
+            tr_mae = eval_mae_under_greedy(agent, X_tr, err_tr)
             te_mae = eval_mae_under_greedy(agent, X_te, err_te)
             logger.info(
                 "step %d  baseline=%.5f  train_greedy=%.4f  test_greedy=%.4f  test_prob_on_best=%.4f  "
-                "test_mae_energy=%.6g",
+                "train_mae_energy=%.6g  test_mae_energy=%.6g",
                 t + 1,
                 baseline,
                 tr_acc,
                 te_acc,
                 te_p,
+                tr_mae,
                 te_mae,
             )
             if te_acc > best_te_acc:
                 best_te_acc = te_acc
                 agent.save(out_dir / "reinforce_policy_best.pkl")
-            _record("reinforce", t + 1, tr_acc, te_acc, te_p, te_mae, baseline)
+            _record("reinforce", t + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, baseline)
 
     agent.save(out_dir / "reinforce_policy_final.pkl")
 

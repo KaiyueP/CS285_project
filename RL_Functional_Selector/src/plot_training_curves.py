@@ -65,6 +65,7 @@ def main(argv=None):
     test_g = np.array([r["test_greedy"] for r in recs])
     train_g = np.array([r["train_greedy"] for r in recs])
     test_p = np.array([r["test_prob_on_best"] for r in recs])
+    train_mae = np.array([r.get("train_mae_energy", np.nan) for r in recs], dtype=float)
     test_mae = np.array([r.get("test_mae_energy", r.get("test_mae_hartree")) for r in recs], dtype=float)
     baselines = [r.get("baseline") for r in recs]
     bl = np.array([b if b is not None else np.nan for b in baselines])
@@ -79,6 +80,7 @@ def main(argv=None):
         test_g = test_g[m]
         train_g = train_g[m]
         test_p = test_p[m]
+        train_mae = train_mae[m]
         test_mae = test_mae[m]
         bl = bl[m]
 
@@ -123,11 +125,15 @@ def main(argv=None):
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
     # Annotate latest test MAE so the exact number is visible on the plot.
-    latest_mae = float(test_mae[-1])
+    latest_te_mae = float(test_mae[-1])
+    latest_tr_mae = float(train_mae[-1]) if np.isfinite(train_mae[-1]) else float("nan")
+    mae_text = f"Latest test MAE: {latest_te_mae:.4f} {unit}"
+    if np.isfinite(latest_tr_mae):
+        mae_text += f"\nLatest train MAE: {latest_tr_mae:.4f} {unit}"
     ax.text(
         0.98,
         0.02,
-        f"Latest test MAE: {latest_mae:.4f} {unit}",
+        mae_text,
         transform=ax.transAxes,
         ha="right",
         va="bottom",
@@ -181,11 +187,15 @@ def main(argv=None):
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
-    latest_mae = float(test_mae[-1])
+    latest_te_mae = float(test_mae[-1])
+    latest_tr_mae = float(train_mae[-1]) if np.isfinite(train_mae[-1]) else float("nan")
+    mae_text = f"Latest test MAE: {latest_te_mae:.4f} {unit}"
+    if np.isfinite(latest_tr_mae):
+        mae_text += f"\nLatest train MAE: {latest_tr_mae:.4f} {unit}"
     ax.text(
         0.98,
         0.02,
-        f"Latest test MAE: {latest_mae:.4f} {unit}",
+        mae_text,
         transform=ax.transAxes,
         ha="right",
         va="bottom",
