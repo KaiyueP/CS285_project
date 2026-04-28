@@ -122,6 +122,18 @@ def main(argv=None):
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
+    # Annotate latest test MAE so the exact number is visible on the plot.
+    latest_mae = float(test_mae[-1])
+    ax.text(
+        0.98,
+        0.02,
+        f"Latest test MAE: {latest_mae:.4f} {unit}",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=8,
+        bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8),
+    )
 
     # --- Panel 3: probability on optimal functionals ---
     ax = axes[1, 0]
@@ -169,6 +181,17 @@ def main(argv=None):
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
+    latest_mae = float(test_mae[-1])
+    ax.text(
+        0.98,
+        0.02,
+        f"Latest test MAE: {latest_mae:.4f} {unit}",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=9,
+        bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8),
+    )
     out_mae = out_dir / f"training_mae_energy{suffix}.png"
     fig2.savefig(out_mae, dpi=150)
     plt.close(fig2)
