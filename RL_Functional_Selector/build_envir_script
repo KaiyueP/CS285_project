@@ -16,3 +16,10 @@ python -m pip install --upgrade pip
 
 To leave the environment later:
 deactivate
+
+to run
+python train_reaction_reinforce.py --gscdb-root /mnt/e/course/CS285/project/GSCDB --out-dir ../models/reaction_reinforce --steps 5000
+
+
+to plot
+ python plot_training_curves.py --history ../models/reaction_reinforce/training_history.json --output-dir ../models/reaction_reinforce/plots
