@@ -1,0 +1,34 @@
+Install venv support (once):
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+
+Go to your project folder:
+cd /path/to/your/project
+
+Create the environment:
+python3 -m venv RL_learning
+
+Activate it:
+source RL_learning/bin/activate
+
+Upgrade pip (recommended):
+python -m pip install --upgrade pip
+
+To leave the environment later:
+deactivate
+
+so far the best run command is:
+python train_reaction_reinforce.py --gscdb-root ../../GSCDB --out-dir ../models/reaction_reinforce_mae_plus --warmup-supervised 3000 --emae-steps 2500 --steps 2500 --reward-mode regret --select-best-by mae --lr 0.003 --entropy-coef 0.005 --batch-size 256 --hidden 512 256
+
+to plot
+python plot_training_curves.py --history ../models/reaction_reinforce_mae_plus/training_history.json
+
+
+results at:
+Saved:
+  ../models/reaction_reinforce_mae_plus/plots/training_curves_overview.png
+  ../models/reaction_reinforce_mae_plus/plots/training_mae_energy.png
+
+INFO Saved policy to ../models/reaction_reinforce_mae_plus/reinforce_policy_final.pkl
+INFO Final TEST: MAE=0.739992 kcal/mol, regret=0.1389, top3_hit=0.3161  (oracle MAE 0.193135, uniform-random MAE ~1.70034)
+INFO Wrote ../models/reaction_reinforce_mae_plus/reinforce_policy_final.pkl, meta.json, and ../models/reaction_reinforce_mae_plus/training_history.json

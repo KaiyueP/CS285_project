@@ -89,6 +89,42 @@ def eval_mae_uniform_random(errors: np.ndarray, rng: np.random.Generator) -> flo
     return float(np.mean(errors[np.arange(n), j]))
 
 
+def eval_mean_regret_under_greedy(agent: ReinforcePolicyAgent, X: np.ndarray, errors: np.ndarray) -> float:
+    """
+    Mean normalized regret under greedy action:
+      regret_i = (err(a_hat)-err_min)/(err_max-err_min+eps), in [0,1].
+    Lower is better; 0 means always optimal.
+    """
+    if len(X) == 0:
+        return float("nan")
+    vals = []
+    for i in range(len(X)):
+        row = errors[i]
+        a = agent.greedy_action(X[i])
+        emin = float(np.min(row))
+        emax = float(np.max(row))
+        denom = (emax - emin) + 1e-8
+        vals.append(float((row[a] - emin) / denom))
+    return float(np.mean(vals))
+
+
+def eval_topk_hit_rate(agent: ReinforcePolicyAgent, X: np.ndarray, errors: np.ndarray, k: int = 3) -> float:
+    """
+    Fraction of samples where at least one of the policy top-k actions is optimal (min error).
+    """
+    if len(X) == 0:
+        return float("nan")
+    k = max(1, min(k, errors.shape[1]))
+    hits = 0
+    for i in range(len(X)):
+        p = agent.action_probs(X[i])
+        topk = np.argsort(-p)[:k]
+        emin = float(np.min(errors[i]))
+        if np.any(errors[i, topk] <= emin + 1e-12):
+            hits += 1
+    return hits / max(1, len(X))
+
+
 def train(
     gscdb_root: Path,
     out_dir: Path,
@@ -103,6 +139,9 @@ def train(
     warmup_supervised: int,
     batch_size: int,
     log_interval: int,
+    reward_mode: str,
+    select_best_by: str,
+    emae_steps: int,
 ):
     random.seed(seed)
     np.random.seed(seed)
@@ -153,10 +192,41 @@ def train(
     history: dict = {
         "te_mae_oracle": te_mae_oracle,
         "te_mae_uniform_random": te_mae_rand,
+        "energy_unit": "kcal/mol",
         "warmup_supervised": warmup_supervised,
         "reinforce_steps": steps,
+        "reward_mode": reward_mode,
+        "emae_steps": emae_steps,
         "records": [],
     }
+
+    if select_best_by in ("mae", "regret"):
+        best_score = float("inf")
+    else:
+        best_score = float("-inf")
+
+    def maybe_save_best(
+        te_acc: float,
+        te_mae: float,
+        te_regret: float,
+        te_top3: float,
+    ) -> None:
+        nonlocal best_score
+        if select_best_by == "mae":
+            candidate = te_mae
+            improved = candidate < best_score
+        elif select_best_by == "regret":
+            candidate = te_regret
+            improved = candidate < best_score
+        elif select_best_by == "top3":
+            candidate = te_top3
+            improved = candidate > best_score
+        else:
+            candidate = te_acc
+            improved = candidate > best_score
+        if improved:
+            best_score = candidate
+            agent.save(out_dir / "reinforce_policy_best.pkl")
 
     def _record(
         phase: str,
@@ -166,11 +236,16 @@ def train(
         te_p: float,
         tr_mae: float,
         te_mae: float,
+        te_regret: float,
+        te_top3_hit: float,
         baseline_val: Optional[float],
     ) -> None:
-        cum = step_in_phase
-        if phase == "reinforce":
+        if phase == "warmup":
+            cum = step_in_phase
+        elif phase == "emae":
             cum = warmup_supervised + step_in_phase
+        else:
+            cum = warmup_supervised + emae_steps + step_in_phase
         history["records"].append(
             {
                 "phase": phase,
@@ -181,6 +256,8 @@ def train(
                 "test_prob_on_best": te_p,
                 "train_mae_energy": tr_mae,
                 "test_mae_energy": te_mae,
+                "test_regret": te_regret,
+                "test_top3_hit": te_top3_hit,
                 "baseline": baseline_val,
             }
         )
@@ -201,9 +278,11 @@ def train(
                 te_p = eval_mean_prob_on_best(agent, X_te, err_te)
                 tr_mae = eval_mae_under_greedy(agent, X_tr, err_tr)
                 te_mae = eval_mae_under_greedy(agent, X_te, err_te)
+                te_regret = eval_mean_regret_under_greedy(agent, X_te, err_te)
+                te_top3 = eval_topk_hit_rate(agent, X_te, err_te, k=3)
                 logger.info(
                     "warmup %d/%d  train_greedy=%.4f  test_greedy=%.4f  test_prob_on_best=%.4f  "
-                    "train_mae_energy=%.6g  test_mae_energy=%.6g",
+                    "train_mae_energy=%.6g  test_mae_energy=%.6g  test_regret=%.4f  test_top3_hit=%.4f",
                     u + 1,
                     warmup_supervised,
                     tr_acc,
@@ -211,17 +290,53 @@ def train(
                     te_p,
                     tr_mae,
                     te_mae,
+                    te_regret,
+                    te_top3,
                 )
-                _record("warmup", u + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, None)
+                _record("warmup", u + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, te_regret, te_top3, None)
+                maybe_save_best(te_acc, te_mae, te_regret, te_top3)
+
+    if emae_steps > 0:
+        logger.info(
+            "Expected-MAE refinement: %d steps, batch=%d (minimize E_pi[|E-E_ref|] on train)",
+            emae_steps,
+            batch_size,
+        )
+        for u in range(emae_steps):
+            bi = np.random.choice(len(tr), size=min(batch_size, len(tr)), replace=False)
+            agent.expected_mae_batch(X_tr[bi], err_tr[bi])
+            if (u + 1) % log_interval == 0 or u == 0:
+                tr_acc = eval_greedy_accuracy(agent, X_tr, err_tr)
+                te_acc = eval_greedy_accuracy(agent, X_te, err_te)
+                te_p = eval_mean_prob_on_best(agent, X_te, err_te)
+                tr_mae = eval_mae_under_greedy(agent, X_tr, err_tr)
+                te_mae = eval_mae_under_greedy(agent, X_te, err_te)
+                te_regret = eval_mean_regret_under_greedy(agent, X_te, err_te)
+                te_top3 = eval_topk_hit_rate(agent, X_te, err_te, k=3)
+                logger.info(
+                    "emae %d/%d  train_greedy=%.4f  test_greedy=%.4f  test_prob_on_best=%.4f  "
+                    "train_mae_energy=%.6g  test_mae_energy=%.6g  test_regret=%.4f  test_top3_hit=%.4f",
+                    u + 1,
+                    emae_steps,
+                    tr_acc,
+                    te_acc,
+                    te_p,
+                    tr_mae,
+                    te_mae,
+                    te_regret,
+                    te_top3,
+                )
+                _record("emae", u + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, te_regret, te_top3, None)
+                maybe_save_best(te_acc, te_mae, te_regret, te_top3)
 
     baseline = 0.0
-    best_te_acc = -1.0
 
     # --- Batched REINFORCE ---
     logger.info(
-        "REINFORCE: %d steps, batch=%d, entropy_coef=%s, baseline_momentum=%.3f",
+        "REINFORCE: %d steps, batch=%d, reward_mode=%s, entropy_coef=%s, baseline_momentum=%.3f",
         steps,
         batch_size,
+        reward_mode,
         entropy_coef,
         baseline_momentum,
     )
@@ -234,7 +349,14 @@ def train(
         for j, idx_i in enumerate(bi):
             a, _, _ = agent.sample_action(states[j])
             actions[j] = a
-            rewards[j] = -float(err_tr[idx_i, a])
+            row = err_tr[idx_i]
+            if reward_mode == "regret":
+                emin = float(np.min(row))
+                emax = float(np.max(row))
+                denom = (emax - emin) + 1e-8
+                rewards[j] = -float((row[a] - emin) / denom)
+            else:
+                rewards[j] = -float(row[a])
 
         batch_mean_r = float(rewards.mean())
         baseline = baseline_momentum * baseline + (1.0 - baseline_momentum) * batch_mean_r
@@ -249,9 +371,11 @@ def train(
             te_p = eval_mean_prob_on_best(agent, X_te, err_te)
             tr_mae = eval_mae_under_greedy(agent, X_tr, err_tr)
             te_mae = eval_mae_under_greedy(agent, X_te, err_te)
+            te_regret = eval_mean_regret_under_greedy(agent, X_te, err_te)
+            te_top3 = eval_topk_hit_rate(agent, X_te, err_te, k=3)
             logger.info(
                 "step %d  baseline=%.5f  train_greedy=%.4f  test_greedy=%.4f  test_prob_on_best=%.4f  "
-                "train_mae_energy=%.6g  test_mae_energy=%.6g",
+                "train_mae_energy=%.6g  test_mae_energy=%.6g  test_regret=%.4f  test_top3_hit=%.4f",
                 t + 1,
                 baseline,
                 tr_acc,
@@ -259,19 +383,23 @@ def train(
                 te_p,
                 tr_mae,
                 te_mae,
+                te_regret,
+                te_top3,
             )
-            if te_acc > best_te_acc:
-                best_te_acc = te_acc
-                agent.save(out_dir / "reinforce_policy_best.pkl")
-            _record("reinforce", t + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, baseline)
+            maybe_save_best(te_acc, te_mae, te_regret, te_top3)
+            _record("reinforce", t + 1, tr_acc, te_acc, te_p, tr_mae, te_mae, te_regret, te_top3, baseline)
 
     agent.save(out_dir / "reinforce_policy_final.pkl")
 
     final_te_mae = eval_mae_under_greedy(agent, X_te, err_te)
+    final_te_regret = eval_mean_regret_under_greedy(agent, X_te, err_te)
+    final_te_top3 = eval_topk_hit_rate(agent, X_te, err_te, k=3)
     logger.info(
-        "Final TEST energy MAE (greedy predicted functional): %.6g kcal/mol  "
-        "(oracle lower bound %.6g, uniform-random ~%.6g)",
+        "Final TEST: MAE=%.6g kcal/mol, regret=%.4f, top3_hit=%.4f  "
+        "(oracle MAE %.6g, uniform-random MAE ~%.6g)",
         final_te_mae,
+        final_te_regret,
+        final_te_top3,
         te_mae_oracle,
         te_mae_rand,
     )
@@ -288,9 +416,15 @@ def train(
         "seed": seed,
         "steps": steps,
         "warmup_supervised": warmup_supervised,
+        "emae_steps": emae_steps,
         "batch_size": batch_size,
         "energy_unit": "kcal/mol",
+        "reward_mode": reward_mode,
+        "select_best_by": select_best_by,
+        "best_score": best_score,
         "test_mae_energy_greedy_final": final_te_mae,
+        "test_regret_final": final_te_regret,
+        "test_top3_hit_final": final_te_top3,
         "test_mae_energy_oracle": te_mae_oracle,
         "test_mae_energy_uniform_random": te_mae_rand,
     }
@@ -326,8 +460,21 @@ def main(argv=None):
         default=2000,
         help="SGD steps of cross-entropy to true best functional before REINFORCE (0 to disable).",
     )
+    p.add_argument(
+        "--emae-steps",
+        type=int,
+        default=0,
+        help="After warmup, SGD steps minimizing expected MAE E_pi[|E-E_ref|] (softmax policy; 0=skip).",
+    )
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--log-interval", type=int, default=500)
+    p.add_argument("--reward-mode", choices=["absolute", "regret"], default="absolute")
+    p.add_argument(
+        "--select-best-by",
+        choices=["mae", "accuracy", "regret", "top3"],
+        default="mae",
+        help="Metric used to save reinforce_policy_best.pkl during training.",
+    )
     args = p.parse_args(argv)
 
     train(
@@ -344,6 +491,9 @@ def main(argv=None):
         warmup_supervised=args.warmup_supervised,
         batch_size=args.batch_size,
         log_interval=args.log_interval,
+        reward_mode=args.reward_mode,
+        select_best_by=args.select_best_by,
+        emae_steps=args.emae_steps,
     )
 
 

@@ -1,0 +1,4 @@
+label,run_dir,reward_mode,select_best_by,final_test_mae,final_train_mae,final_test_regret,final_test_top3_hit,final_test_greedy,meta_final_test_mae,meta_final_test_regret,meta_final_test_top3_hit
+reaction_reinforce,../models/reaction_reinforce,,,0.7683926157259516,0.9998757220094576,nan,nan,0.1592356687898089,0.7683926157259516,,
+reaction_reinforce_mae_tuned,../models/reaction_reinforce_mae_tuned,absolute,mae,0.7501701273966642,0.8736460815838003,0.13992722783114123,0.3049363057324841,0.1624203821656051,0.7501701273966642,0.13992722783114123,0.3049363057324841
+reaction_reinforce_regret,../models/reaction_reinforce_regret,regret,mae,0.9132143098464038,1.6824036888341447,0.1434002159739475,0.3535031847133758,0.15605095541401273,0.9132143098464038,0.1434002159739475,0.3535031847133758

@@ -229,6 +229,47 @@ class ReinforcePolicyAgent:
 
         return loss
 
+    def expected_mae_batch(
+        self,
+        states: np.ndarray,
+        errors: np.ndarray,
+    ) -> float:
+        """
+        One SGD step minimizing E_{a~pi}[err(s,a)] = sum_a pi(a|s) err(s,a).
+
+        Aligns the softmax policy with mean absolute error on the training reactions
+        (differentiable; complements hard cross-entropy warmup).
+        """
+        if states.ndim == 1:
+            states = states.reshape(1, -1)
+        bsz = states.shape[0]
+        logits, activations, pre = self._forward(states, return_cache=True)
+        probs = _softmax(logits)
+        exp_err = (probs * errors).sum(axis=1, keepdims=True)
+        diff = errors - exp_err
+        d_logits = probs * diff / max(1, bsz)
+
+        loss = float(exp_err.mean())
+
+        delta = d_logits
+        grad_w: List[Optional[np.ndarray]] = [None] * len(self.weights)
+        grad_b: List[Optional[np.ndarray]] = [None] * len(self.biases)
+
+        for layer_idx in reversed(range(len(self.weights))):
+            a_prev = activations[layer_idx]
+            grad_w[layer_idx] = a_prev.T @ delta
+            grad_b[layer_idx] = np.sum(delta, axis=0, keepdims=True)
+            if layer_idx > 0:
+                da_prev = delta @ self.weights[layer_idx].T
+                relu_mask = (pre[layer_idx - 1] > 0).astype(np.float64)
+                delta = da_prev * relu_mask
+
+        for i in range(len(self.weights)):
+            self.weights[i] -= self.learning_rate * grad_w[i]
+            self.biases[i] -= self.learning_rate * grad_b[i]
+
+        return loss
+
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

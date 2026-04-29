@@ -59,12 +59,15 @@ def main(argv=None):
     rand_mae = float(data["te_mae_uniform_random"])
     unit = data.get("energy_unit", "kcal/mol")
     wu = int(data.get("warmup_supervised") or 0)
+    emae_n = int(data.get("emae_steps") or 0)
 
     cum = np.array([r["cum_update"] for r in recs])
     phases = np.array([r["phase"] for r in recs])
     test_g = np.array([r["test_greedy"] for r in recs])
     train_g = np.array([r["train_greedy"] for r in recs])
     test_p = np.array([r["test_prob_on_best"] for r in recs])
+    test_regret = np.array([r.get("test_regret", np.nan) for r in recs], dtype=float)
+    test_top3 = np.array([r.get("test_top3_hit", np.nan) for r in recs], dtype=float)
     train_mae = np.array([r.get("train_mae_energy", np.nan) for r in recs], dtype=float)
     test_mae = np.array([r.get("test_mae_energy", r.get("test_mae_hartree")) for r in recs], dtype=float)
     baselines = [r.get("baseline") for r in recs]
@@ -80,6 +83,8 @@ def main(argv=None):
         test_g = test_g[m]
         train_g = train_g[m]
         test_p = test_p[m]
+        test_regret = test_regret[m]
+        test_top3 = test_top3[m]
         train_mae = train_mae[m]
         test_mae = test_mae[m]
         bl = bl[m]
@@ -100,7 +105,9 @@ def main(argv=None):
     ax.plot(cum, test_g, "b-o", markersize=3, label="Test greedy accuracy", linewidth=1.2)
     ax.plot(cum, train_g, "g--s", markersize=2, label="Train greedy accuracy", linewidth=1, alpha=0.8)
     if wu > 0 and (max_cum is None or wu <= max_cum):
-        ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5, label="Warmup → REINFORCE")
+        ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5, label="CE warmup end")
+    if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
+        ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5, label="EMAE end → REINFORCE")
     ax.set_xlabel("Cumulative update (warmup 1..W, then W+1..W+RL)")
     ax.set_ylabel("Fraction correct (0–1)")
     ax.set_title("Greedy top-1 matches a best functional")
@@ -117,6 +124,8 @@ def main(argv=None):
     ax.axhline(rand_mae, color="orange", linestyle="--", linewidth=1.5, label=f"Uniform random (~{rand_mae:.4g} {unit})")
     if wu > 0 and (max_cum is None or wu <= max_cum):
         ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5)
+    if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
+        ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5)
     ax.set_xlabel("Cumulative update")
     ax.set_ylabel(f"MAE ({unit})")
     ax.set_title("Energy error vs reference (predicted functional)")
@@ -141,17 +150,30 @@ def main(argv=None):
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8),
     )
 
-    # --- Panel 3: probability on optimal functionals ---
+    # --- Panel 3: RL quality metrics ---
     ax = axes[1, 0]
-    ax.plot(cum, test_p, "purple", marker="o", markersize=3, linewidth=1.2)
+    plotted_any = False
+    if np.isfinite(test_regret).any():
+        ax.plot(cum, test_regret, "purple", marker="o", markersize=3, linewidth=1.2, label="Test regret (lower better)")
+        plotted_any = True
+    if np.isfinite(test_top3).any():
+        ax.plot(cum, test_top3, "teal", marker="s", markersize=3, linewidth=1.2, label="Test top3 hit (higher better)")
+        plotted_any = True
+    # keep previous metric for continuity
+    ax.plot(cum, test_p, "gray", marker=".", markersize=2, linewidth=1.0, alpha=0.7, label="Test prob on best")
     if wu > 0 and (max_cum is None or wu <= max_cum):
         ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5)
+    if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
+        ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5)
     ax.set_xlabel("Cumulative update")
-    ax.set_ylabel("Total prob on best DFAs (0–1)")
-    ax.set_title("Policy mass on tied-lowest-error functionals (test)")
+    ax.set_ylabel("Metric value (0–1)")
+    ax.set_title("RL quality metrics on test split")
+    if plotted_any:
+        ax.legend(loc="best", fontsize=7)
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
+    ax.set_ylim(-0.02, 1.02)
 
     # --- Panel 4: REINFORCE baseline (reward scale) ---
     ax = axes[1, 1]
@@ -179,7 +201,9 @@ def main(argv=None):
     ax.axhline(oracle, color="green", linestyle="--", label="Oracle")
     ax.axhline(rand_mae, color="orange", linestyle="--", label="Uniform random")
     if wu > 0 and (max_cum is None or wu <= max_cum):
-        ax.axvline(wu, color="gray", linestyle=":", label="Warmup end")
+        ax.axvline(wu, color="gray", linestyle=":", label="CE warmup end")
+    if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
+        ax.axvline(wu + emae_n, color="olive", linestyle=":", label="EMAE end")
     ax.set_xlabel("Cumulative update")
     ax.set_ylabel(f"MAE ({unit})")
     ax.set_title("Reaction energy error vs reference")
@@ -189,9 +213,15 @@ def main(argv=None):
         ax.set_xlim(left=0, right=max_cum)
     latest_te_mae = float(test_mae[-1])
     latest_tr_mae = float(train_mae[-1]) if np.isfinite(train_mae[-1]) else float("nan")
+    latest_te_regret = float(test_regret[-1]) if np.isfinite(test_regret[-1]) else float("nan")
+    latest_te_top3 = float(test_top3[-1]) if np.isfinite(test_top3[-1]) else float("nan")
     mae_text = f"Latest test MAE: {latest_te_mae:.4f} {unit}"
     if np.isfinite(latest_tr_mae):
         mae_text += f"\nLatest train MAE: {latest_tr_mae:.4f} {unit}"
+    if np.isfinite(latest_te_regret):
+        mae_text += f"\nLatest test regret: {latest_te_regret:.4f}"
+    if np.isfinite(latest_te_top3):
+        mae_text += f"\nLatest test top3 hit: {latest_te_top3:.4f}"
     ax.text(
         0.98,
         0.02,
