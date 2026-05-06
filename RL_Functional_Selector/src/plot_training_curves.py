@@ -16,6 +16,23 @@ from pathlib import Path
 import numpy as np
 
 
+def _tight_ylim(*series: np.ndarray, pad_frac: float = 0.12, floor: float = 0.0, ceil: float = 1.0) -> tuple[float, float]:
+    values = np.concatenate([np.asarray(s, dtype=float).ravel() for s in series])
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return floor, ceil
+    lo = float(values.min())
+    hi = float(values.max())
+    span = max(hi - lo, 0.02)
+    lo = max(floor, lo - pad_frac * span)
+    hi = min(ceil, hi + pad_frac * span)
+    if hi - lo < 0.05:
+        mid = 0.5 * (lo + hi)
+        lo = max(floor, mid - 0.025)
+        hi = min(ceil, mid + 0.025)
+    return lo, hi
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="Plot curves from training_history.json")
     p.add_argument(
@@ -94,11 +111,36 @@ def main(argv=None):
     except ImportError as e:
         raise SystemExit("matplotlib is required: pip install matplotlib") from e
 
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), constrained_layout=True)
-    title = "Functional selector training metrics"
-    if max_cum is not None:
-        title += f" (cum_update ≤ {max_cum})"
-    fig.suptitle(title, fontsize=13)
+    font = {
+        "title": 13,
+        "panel_title": 13,
+        "label": 13,
+        "tick": 13,
+        "legend": 10,
+        "annotation": 10,
+    }
+    plt.rcParams.update(
+        {
+            "font.size": font["tick"],
+            "axes.titlesize": font["panel_title"],
+            "axes.labelsize": font["label"],
+            "xtick.labelsize": font["tick"],
+            "ytick.labelsize": font["tick"],
+            "legend.fontsize": font["legend"],
+        }
+    )
+
+    fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
+    fig.set_constrained_layout_pads(
+        w_pad=0.06,
+        h_pad=0.06,
+        wspace=0.05,
+        hspace=0.05,
+    )
+    # title = "Functional selector training metrics"
+    # if max_cum is not None:
+    #     title += f" (cum_update ≤ {max_cum})"
+    # fig.suptitle(title, fontsize=font["title"])
 
     # --- Panel 1: accuracy-style metrics ---
     ax = axes[0, 0]
@@ -108,12 +150,12 @@ def main(argv=None):
         ax.axvline(wu, color="gray", linestyle=":", linewidth=1.5, label="CE warmup end")
     if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
         ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5, label="EMAE end → REINFORCE")
-    ax.set_xlabel("Cumulative update (warmup 1..W, then W+1..W+RL)")
-    ax.set_ylabel("Fraction correct (0–1)")
-    ax.set_title("Greedy top-1 matches a best functional")
-    ax.legend(loc="best", fontsize=8)
+    ax.set_xlabel("Cumulative update")
+    ax.set_ylabel("Fraction correct")
+    ax.set_title("Greedy top-1")
+    ax.legend(loc="best", fontsize=font["legend"])
     ax.grid(True, alpha=0.3)
-    ax.set_ylim(-0.02, max(0.55, float(test_g.max()) * 1.15))
+    ax.set_ylim(*_tight_ylim(test_g, train_g, floor=0.0, ceil=1.0))
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
 
@@ -128,8 +170,8 @@ def main(argv=None):
         ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5)
     ax.set_xlabel("Cumulative update")
     ax.set_ylabel(f"MAE ({unit})")
-    ax.set_title("Energy error vs reference (predicted functional)")
-    ax.legend(loc="best", fontsize=7)
+    ax.set_title("Energy error")
+    ax.legend(loc="best", fontsize=font["legend"])
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
@@ -146,7 +188,7 @@ def main(argv=None):
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=8,
+        fontsize=font["annotation"],
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8),
     )
 
@@ -166,14 +208,14 @@ def main(argv=None):
     if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
         ax.axvline(wu + emae_n, color="olive", linestyle=":", linewidth=1.5)
     ax.set_xlabel("Cumulative update")
-    ax.set_ylabel("Metric value (0–1)")
-    ax.set_title("RL quality metrics on test split")
+    ax.set_ylabel("Metric value")
+    ax.set_title("RL quality metrics")
     if plotted_any:
-        ax.legend(loc="best", fontsize=7)
+        ax.legend(loc="best", fontsize=font["legend"])
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
-    ax.set_ylim(-0.02, 1.02)
+    ax.set_ylim(*_tight_ylim(test_regret, test_top3, test_p, floor=0.0, ceil=1.0))
 
     # --- Panel 4: REINFORCE baseline (reward scale) ---
     ax = axes[1, 1]
@@ -181,9 +223,9 @@ def main(argv=None):
     if np.any(rl_mask):
         ax.plot(cum[rl_mask], bl[rl_mask], "k-", marker=".", markersize=2, linewidth=1, label="EMA batch-mean reward")
         ax.set_xlabel("Cumulative update")
-        ax.set_ylabel("Baseline (~negative typical |error|)")
-        ax.set_title("REINFORCE reward baseline (training only)")
-        ax.legend(loc="best", fontsize=8)
+        ax.set_ylabel("Baseline")
+        ax.set_title("REINFORCE reward baseline")
+        ax.legend(loc="best", fontsize=font["legend"])
         if max_cum is not None:
             ax.set_xlim(left=0, right=max_cum)
     else:
@@ -196,7 +238,7 @@ def main(argv=None):
     plt.close(fig)
 
     # Second figure: MAE only (same unit as dataset)
-    fig2, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    fig2, ax = plt.subplots(figsize=(8, 5.5), constrained_layout=True)
     ax.plot(cum, test_mae, "darkred", marker="o", markersize=3, label="Test MAE (greedy)")
     ax.axhline(oracle, color="green", linestyle="--", label="Oracle")
     ax.axhline(rand_mae, color="orange", linestyle="--", label="Uniform random")
@@ -204,10 +246,11 @@ def main(argv=None):
         ax.axvline(wu, color="gray", linestyle=":", label="CE warmup end")
     if emae_n > 0 and (max_cum is None or wu + emae_n <= max_cum):
         ax.axvline(wu + emae_n, color="olive", linestyle=":", label="EMAE end")
-    ax.set_xlabel("Cumulative update")
-    ax.set_ylabel(f"MAE ({unit})")
-    ax.set_title("Reaction energy error vs reference")
-    ax.legend()
+    ax.set_xlabel("Cumulative update", fontsize=16)
+    ax.set_ylabel(f"MAE ({unit})", fontsize=16)
+    ax.set_title("Reaction energy error vs reference", fontsize=16)
+    ax.tick_params(axis="both", labelsize=16)
+    ax.legend(loc="best", fontsize=14)
     ax.grid(True, alpha=0.3)
     if max_cum is not None:
         ax.set_xlim(left=0, right=max_cum)
@@ -229,7 +272,7 @@ def main(argv=None):
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=9,
+        fontsize=14,
         bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="gray", alpha=0.8),
     )
     out_mae = out_dir / f"training_mae_energy{suffix}.png"
